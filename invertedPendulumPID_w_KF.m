@@ -14,6 +14,7 @@ clc; clear all; close all;
 %  b(x1, x2) = 1 / J
 
 %% System Parameters
+clear all, clc, close all
 
 mRod      = 0.01814; % [kg]
 mBob      = 0.038; % [kg]
@@ -22,52 +23,101 @@ l         = 0.1016; % [m]
 g         = 9.81; % [m / s^2]
 J         = 0.1; % [Nm]
 J_rod     = (1 / 3) * mRod * l^2;
-J_bob     = mBob * (l + rBob)^2;
+J_bob     = mBob * (l )^2;
 J_eff     = J_rod + J_bob;
 
-%% Control System Simulation
+
+% % PID
+% dt = 0.001;
+% t = dt:dt:10;
+% A = [0, 1 0; mBob*g*l/J_eff, 0, 0; -1 0 0];
+% B = [0; 1 / J_eff; 0];
+% E = [0; 0; 1];
+% s_eigs = [-10+2*j,-10-2*j, -50];
+% K = place(A,B,s_eigs);
+%
+% dt = 0.001;
+% t = dt:dt:10;
+%
+% %continuous
+% x_ = [deg2rad(10);0;0];
+% y_ = 0;
+% dx_ = x_;
+% u_ = [0];
+% % r = t -t + 0;
+% r = deg2rad(70) + (pi / 30) .* sin(t);
+%
+% for k = 2:length(t)
+%     u_(:,k) = -K*(x_(:,k-1));
+%
+%     dx_(:,k) = A*x_(:,k-1) + B*u_(:,k) + E*r(k);
+%     x_(:,k) = x_(:,k-1) + dx_(:,k)*dt;
+% end
+
+
+% figure(1)
+% clf(1)
+% hold on
+% plot(t,rad2deg(x_(1,:)),"LineWidth",2)
+% plot(t,rad2deg(r),'--',"LineWidth",2)
+
+% Control System Simulation
 
 dt = 0.001;
 t = dt:dt:10;
 A = [1, dt; 0, 1];
-B = 1 / J_eff;
+B = [0;1 / J_eff];
 H = eye(2);
 P = 10 .* eye(2); P_obs = P; Pplus = P; P1 = P(1, 1); P2 = P(2, 2);
-x = [pi / 2; 0]; xObs = x;
+x = [0.1; 0]; xObs = x;
 xHat = x; xHatPlus = x;
 sigmaProcess = [deg2rad(0.1);
-                deg2rad(0.002)]; % Disturbance
+    deg2rad(0.002)]; % Disturbance
 
 sigmaMeasure = [deg2rad(0.05);
-                deg2rad(0.001)]; % Measurement Noise
+    deg2rad(0.001)]; % Measurement Noise
 Q = [sigmaProcess(1)^2, 0; 0, sigmaProcess(2)^2];
 R = [sigmaMeasure(1)^2, 0; 0, sigmaMeasure(2)^2] / 100;
 
 lambda = 5; k = 18;
 controlSaturation = 30; % [Nm]
 
-%{
+
+N = inv([A, B; -1 0 0]) * [0; 0; 1];
+Nx = N(1:2); Nu = N(3);
+
+s_eigs = [-10,-100];
+z_eigs = exp(s_eigs*dt);
+K = place(A,B,z_eigs);
+
+
 x1Des = zeros(size(t));
 x2Des = zeros(size(t));
 x2DesDot = zeros(size(t));
-%}
+% }
 
-x1Des = pi / 2 + (pi / 30) .* sin(t);
-x2Des = (pi / 30) .* cos(t);
-x2DesDot = -(pi / 30) .* sin(t);
-%}
+ref = 0;
 
-%% System with No Observer
+% x1Des = ref + (pi / 30) .* sin(t);
+% x2Des = (pi / 30) .* cos(t);
+% x2DesDot = -(pi / 30) .* sin(t);
+% %}
+
+% System with No Observer
+close all
+
 for i = 2:length(t)
     e = x(1, i - 1) - x1Des(i);
     eDot = x(2, i - 1) - x2Des(i);
 
-    s = lambda * e + eDot;
+    %     s = lambda * e + eDot;
     f = (mRod * g * (l / 2) * sin(x(1, i - 1))) / J_eff + (mBob * g * (l * rBob) * sin(x(1, i - 1))) / J_eff;
     b = 1 / J_eff;
     h = lambda * (x(2, i - 1) - x2Des(i)) + (f - x2DesDot(i));
-    u(:, i) = -(1 / b) * (h + k * sign(s));
-    
+
+    u(:,i) = -K*x(:,i-1) + (Nu + K * Nx) * [x1Des(i)];
+    %     u(:, i) = -(1 / b) * (h + k * sign(s));
+
     if abs((u(i))) > controlSaturation
         u(i) = sign(u(i)) * controlSaturation;
     end
@@ -76,10 +126,21 @@ for i = 2:length(t)
     xDot2 = f + b * u(:, i);
     x1 = x(1, i - 1) + xDot1 * dt;
     x2 = x(2, i - 1) + xDot2 * dt;
-    xProcess = [x1; x2] + [sigmaProcess(1) * randn; sigmaProcess(2) * randn];
-    x(:, i) = H * xProcess + [sigmaMeasure(1) * randn; sigmaMeasure(2) * randn];
+    xProcess = [x1; x2];% + [sigmaProcess(1) * randn; sigmaProcess(2) * randn];
+
+    x(:, i) = H * xProcess;% + [sigmaMeasure(1) * randn; sigmaMeasure(2) * randn];
 
 end
+
+
+figure(1)
+clf(1)
+hold on
+plot(t,rad2deg(x(1,:)),"LineWidth",2)
+% plot(t,rad2deg(x1Des),"LineWidth",2)
+plot(t,u,"LineWidth",2)
+legend("\theta","in",'location','best')
+
 
 %% System with Observer
 for i = 2:length(t)
@@ -151,7 +212,7 @@ plot(t, uObs, 'LineWidth', settings.linewidth)
 ax = gca; ax.FontSize = settings.axisFont; axis tight
 xlabel('Time [Seconds]', 'Interpreter', 'Latex', 'FontSize', settings.axisFont)
 ylabel('$\tau$ [Nm]', 'Interpreter', 'Latex', 'FontSize', settings.axisFont)
-sgtitle('Controller Input', 'Interpreter', 'Latex', 'FontSize', settings.titleFont) 
+sgtitle('Controller Input', 'Interpreter', 'Latex', 'FontSize', settings.titleFont)
 
 figure()
 plot(t, rad2deg(x1Des - x(1, :)), '.', 'MarkerSize', settings.markerSize)
